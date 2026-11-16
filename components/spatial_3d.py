@@ -40,28 +40,27 @@ def get_spatial_css(*, authenticated: bool = True) -> str:
             --specular-y: 50%;
         }}
 
-        /* Deep Obsidian Space Background with multi-layer ambient glows */
+        /* Deep Obsidian Space Background with multi-layer ambient glows and integrated dot pattern */
         [data-testid="stAppViewContainer"] {{
             background-color: var(--spatial-bg) !important;
             background-image:
+                radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
                 radial-gradient(circle at 18% 14%, rgba(56, 189, 248, 0.12), transparent 42%),
                 radial-gradient(circle at 82% 16%, rgba(139, 92, 246, 0.14), transparent 40%),
-                radial-gradient(circle at 50% 88%, rgba(16, 185, 129, 0.08), transparent 45%);
-            background-attachment: fixed;
-            background-size: cover;
-            color: #F8FAFC;
+                radial-gradient(circle at 50% 88%, rgba(16, 185, 129, 0.08), transparent 45%) !important;
+            background-size: 28px 28px, cover, cover, cover !important;
+            background-attachment: fixed !important;
+            color: #F8FAFC !important;
+            pointer-events: auto !important;
         }}
 
-        /* Noise overlay layer for tactile luxury depth */
-        [data-testid="stAppViewContainer"]::before {{
-            content: "";
-            position: fixed;
-            inset: 0;
-            background: radial-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 0);
-            background-size: 24px 24px;
-            pointer-events: none;
-            z-index: 1;
-            opacity: 0.65;
+        /* Absolute clickability & interaction guarantee across all layers */
+        html, body {{
+            pointer-events: auto !important;
+        }}
+
+        #root, .stApp, .main, .block-container, [data-testid="stSidebar"], [data-testid="stHeader"] {{
+            pointer-events: auto !important;
         }}
 
         .block-container {{
@@ -69,6 +68,20 @@ def get_spatial_css(*, authenticated: bool = True) -> str:
             z-index: 2;
             padding-top: 1.4rem;
             padding-bottom: 2.8rem;
+            pointer-events: auto !important;
+        }}
+
+        /* Ensure all interactive controls receive clicks smoothly */
+        button, input, select, textarea, a,
+        [role="button"], [role="tab"], [data-baseweb],
+        .stButton, .stDownloadButton, [data-testid="stMetric"],
+        [data-testid="stExpander"], [data-testid="stPlotlyChart"],
+        [data-testid="stForm"], [data-testid="stTabs"],
+        [data-testid="stWidgetLabel"], [data-testid="stCheckbox"] {{
+            pointer-events: auto !important;
+        }}
+        input, textarea {{
+            cursor: text !important;
         }}
 
         /* Header transparency */
@@ -399,21 +412,12 @@ _SPATIAL_HTML_TEMPLATE = """
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            width: 100%;
-            height: 100%;
-            background: transparent;
-            pointer-events: none;
-        }
         #spatial-local-canvas {
             position: fixed;
             inset: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none;
+            pointer-events: none !important;
             z-index: 0;
         }
     </style>
@@ -613,17 +617,9 @@ _SPATIAL_HTML_TEMPLATE = """
                     const rect = card.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const y = e.clientY - rect.top;
-                    const normX = (x / rect.width) - 0.5;
-                    const normY = (y / rect.height) - 0.5;
-
-                    card.style.transform = 'perspective(1000px) rotateX(' + (-normY * 9) + 'deg) rotateY(' + (normX * 9) + 'deg) scale3d(1.015, 1.015, 1.015)';
                     card.style.setProperty('--specular-x', ((x / rect.width) * 100) + '%');
                     card.style.setProperty('--specular-y', ((y / rect.height) * 100) + '%');
                 }, { passive: true });
-
-                card.addEventListener('mouseleave', () => {
-                    card.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
-                });
             });
         }
         updateCardInteractions();
@@ -788,10 +784,4 @@ def render_spatial_canvas(
     Supports cursor parallax, state-reactive lighting/warp, and card tilt.
     """
     html_content = _SPATIAL_HTML_TEMPLATE.replace("__MODE__", mode).replace("__STATE__", state)
-    if hasattr(st, "html"):
-        try:
-            st.html(html_content, unsafe_allow_javascript=True)
-            return
-        except TypeError:
-            pass
     components.html(html_content, height=0, width=0)
