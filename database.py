@@ -410,6 +410,8 @@ class PostgresConnectionPool:
     @staticmethod
     def _normalize_conninfo(url: str) -> str:
         clean = url.strip()
+        if (clean.startswith('"') and clean.endswith('"')) or (clean.startswith("'") and clean.endswith("'")):
+            clean = clean[1:-1].strip()
         if clean.startswith("postgres://"):
             clean = "postgresql://" + clean[len("postgres://"):]
 
@@ -490,21 +492,32 @@ def _resolve_database_url(db_path: Optional[Union[str, Path]] = None) -> Optiona
     # 1. Environment variables
     for k in ("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL"):
         val = os.getenv(k)
-        if val and val.strip().startswith(("postgresql://", "postgres://")):
-            return PostgresConnectionPool._normalize_conninfo(val.strip())
+        if val:
+            val = val.strip()
+            if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                val = val[1:-1].strip()
+            if val.startswith(("postgresql://", "postgres://")):
+                norm_val = PostgresConnectionPool._normalize_conninfo(val)
+                os.environ[k] = norm_val
+                return norm_val
 
     # 2. Streamlit Cloud Secrets (st.secrets) - always evaluated dynamically
     try:
         import streamlit as st
         if hasattr(st, "secrets"):
+            if "SUPABASE_REGION" in st.secrets:
+                os.environ["SUPABASE_REGION"] = str(st.secrets["SUPABASE_REGION"]).strip()
             for k in ("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL"):
                 if k in st.secrets:
                     raw_val = st.secrets[k]
                     if raw_val:
                         val = str(raw_val).strip()
+                        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                            val = val[1:-1].strip()
                         if val.startswith(("postgresql://", "postgres://")):
-                            os.environ[k] = val
-                            return PostgresConnectionPool._normalize_conninfo(val)
+                            norm_val = PostgresConnectionPool._normalize_conninfo(val)
+                            os.environ[k] = norm_val
+                            return norm_val
     except Exception:
         pass
 
