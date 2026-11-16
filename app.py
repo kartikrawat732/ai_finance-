@@ -612,7 +612,10 @@ def _format_user_contact(user: dict[str, Any]) -> str:
 
 def main() -> None:
     """Orchestrate auth portal, 3D sidebar controls, KPI metrics, AI insights, and tabs."""
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        st.warning(f"Database initialization alert: {exc}. Using fallback storage.")
 
     toast_msg = st.session_state.pop("last_action_toast", None)
     if toast_msg:

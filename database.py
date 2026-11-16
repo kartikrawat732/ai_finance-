@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import queue
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -400,9 +401,9 @@ class PostgresConnectionPool:
             min_size=self.min_size,
             max_size=self.max_size,
             open=False,
-            kwargs={"row_factory": dict_row, "autocommit": False},
+            kwargs={"row_factory": dict_row, "autocommit": False, "connect_timeout": 8},
         )
-        self._pool.open(wait=True, timeout=15.0)
+        self._pool.open(wait=True, timeout=10.0)
         self._closed = False
         self._state_lock = threading.Lock()
 
@@ -411,6 +412,25 @@ class PostgresConnectionPool:
         clean = url.strip()
         if clean.startswith("postgres://"):
             clean = "postgresql://" + clean[len("postgres://"):]
+
+        # Supabase direct endpoints (db.<ref>.supabase.co) only resolve to IPv6 addresses.
+        # Streamlit Community Cloud and IPv4-only hosts cannot route IPv6 packets, causing PoolTimeout.
+        # Auto-rewrite direct Supabase endpoints to the Supavisor IPv4 connection pooler.
+        supabase_match = re.match(
+            r"^(postgres(?:ql)?://)([^:]+):([^@]+)@db\.([a-z0-9_-]+)\.supabase\.co(?::\d+)?(/[^?]+)?(\?.*)?$",
+            clean,
+        )
+        if supabase_match:
+            scheme, user, pwd, project_ref, path, query = supabase_match.groups()
+            path = path or "/postgres"
+            query = query or "?sslmode=require"
+            region = os.getenv("SUPABASE_REGION")
+            if not region and project_ref == "brjqlccckhqykhgsyfzr":
+                region = "ap-northeast-1"
+            if region:
+                pooler_user = f"{user}.{project_ref}" if f".{project_ref}" not in user else user
+                clean = f"{scheme}{pooler_user}:{pwd}@aws-0-{region}.pooler.supabase.com:5432{path}{query}"
+
         if ("supabase.co" in clean.lower() or "pooler.supabase.com" in clean.lower()) and "sslmode" not in clean.lower():
             separator = "&" if "?" in clean else "?"
             clean = f"{clean}{separator}sslmode=require"
@@ -445,6 +465,8 @@ class PostgresConnectionPool:
 _SQLITE_POOL_REGISTRY: dict[Path, SQLiteConnectionPool] = {}
 _POSTGRES_POOL_REGISTRY: dict[str, PostgresConnectionPool] = {}
 _REGISTRY_LOCK = threading.Lock()
+_POSTGRES_FAILED: bool = False
+_LAST_POSTGRES_ERROR: Optional[str] = None
 
 
 def _resolve_database_url(db_path: Optional[Union[str, Path]] = None) -> Optional[str]:
@@ -460,7 +482,7 @@ def _resolve_database_url(db_path: Optional[Union[str, Path]] = None) -> Optiona
     if db_path is not None:
         s = str(db_path).strip()
         if s.startswith(("postgresql://", "postgres://")):
-            return s
+            return PostgresConnectionPool._normalize_conninfo(s)
         return None
 
     _ensure_env_loaded()
@@ -469,7 +491,7 @@ def _resolve_database_url(db_path: Optional[Union[str, Path]] = None) -> Optiona
     for k in ("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL"):
         val = os.getenv(k)
         if val and val.strip().startswith(("postgresql://", "postgres://")):
-            return val.strip()
+            return PostgresConnectionPool._normalize_conninfo(val.strip())
 
     # 2. Streamlit Cloud Secrets (st.secrets) - always evaluated dynamically
     try:
@@ -482,7 +504,7 @@ def _resolve_database_url(db_path: Optional[Union[str, Path]] = None) -> Optiona
                         val = str(raw_val).strip()
                         if val.startswith(("postgresql://", "postgres://")):
                             os.environ[k] = val
-                            return val
+                            return PostgresConnectionPool._normalize_conninfo(val)
     except Exception:
         pass
 
@@ -491,6 +513,9 @@ def _resolve_database_url(db_path: Optional[Union[str, Path]] = None) -> Optiona
 
 def get_database_backend(db_path: Optional[Union[str, Path]] = None) -> str:
     """Return 'postgresql' or 'sqlite' based on parameters and environment variables."""
+    global _POSTGRES_FAILED
+    if _POSTGRES_FAILED:
+        return "sqlite"
     url = _resolve_database_url(db_path)
     return "postgresql" if url else "sqlite"
 
@@ -516,6 +541,17 @@ def _mask_db_url(url: str) -> str:
 
 def get_db_target_info(db_path: Optional[Union[str, Path]] = None) -> dict[str, Any]:
     """Return metadata about active database engine for UI and logging."""
+    global _LAST_POSTGRES_ERROR
+    if _LAST_POSTGRES_ERROR:
+        resolved = resolve_db_path(db_path)
+        return {
+            "backend": "sqlite",
+            "provider": "SQLite (Supabase Connection Timeout)",
+            "display": "⚠️ SQLite Fallback (Supabase Unreachable)",
+            "target": str(resolved.name),
+            "is_cloud": False,
+            "error": _LAST_POSTGRES_ERROR,
+        }
     url = _resolve_database_url(db_path)
     if url:
         is_supabase = "supabase" in url.lower()
@@ -551,13 +587,30 @@ def resolve_db_path(db_path: Optional[Union[str, Path]] = None) -> Path:
 def _get_pool(
     db_path: Optional[Union[str, Path]] = None,
 ) -> Union[SQLiteConnectionPool, PostgresConnectionPool]:
+    global _POSTGRES_FAILED, _LAST_POSTGRES_ERROR
     url = _resolve_database_url(db_path)
     with _REGISTRY_LOCK:
-        if url:
+        if url and not _POSTGRES_FAILED:
             pool = _POSTGRES_POOL_REGISTRY.get(url)
             if pool is None or pool._closed:
-                pool = PostgresConnectionPool(url)
-                _POSTGRES_POOL_REGISTRY[url] = pool
+                try:
+                    pool = PostgresConnectionPool(url)
+                    _POSTGRES_POOL_REGISTRY[url] = pool
+                    _POSTGRES_FAILED = False
+                    _LAST_POSTGRES_ERROR = None
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        f"PostgreSQL connection to Supabase failed: {exc}. Falling back to SQLite."
+                    )
+                    _POSTGRES_FAILED = True
+                    _LAST_POSTGRES_ERROR = str(exc)
+                    resolved = resolve_db_path(None)
+                    sq_pool = _SQLITE_POOL_REGISTRY.get(resolved)
+                    if sq_pool is None or sq_pool._closed:
+                        sq_pool = SQLiteConnectionPool(resolved)
+                        _SQLITE_POOL_REGISTRY[resolved] = sq_pool
+                    return sq_pool
             return pool
 
         resolved = resolve_db_path(db_path)
@@ -731,8 +784,8 @@ def _validate_and_normalize_record(
 
 def init_db(db_path: Optional[Union[str, Path]] = None) -> None:
     """Idempotently initialize SQLite or PostgreSQL (Supabase) tables, indexes, and schema migrations."""
-    backend = get_database_backend(db_path)
     pool = _get_pool(db_path)
+    backend = get_database_backend(db_path)
 
     if backend == "postgresql":
         with pool.connection(write=True) as conn:

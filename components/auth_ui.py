@@ -63,6 +63,13 @@ def render_auth_portal() -> Optional[dict[str, Any]]:
         unsafe_allow_html=True,
     )
 
+    if db_info.get("error"):
+        st.warning(
+            f"⚠️ **Supabase Connection Alert:** {db_info.get('error')}\n\n"
+            "Operating in local SQLite fallback mode. "
+            "On Streamlit Community Cloud, ensure you use the **Supabase IPv4 Connection Pooler** (`aws-0-ap-northeast-1.pooler.supabase.com:5432`) in Streamlit Secrets."
+        )
+
     _, center_col, _ = st.columns([1, 1.45, 1])
     with center_col:
         with st.container(border=True):
