@@ -447,18 +447,52 @@ _POSTGRES_POOL_REGISTRY: dict[str, PostgresConnectionPool] = {}
 _REGISTRY_LOCK = threading.Lock()
 
 
-def get_database_backend(db_path: Optional[Union[str, Path]] = None) -> str:
-    """Return 'postgresql' or 'sqlite' based on parameters and environment variables."""
-    _ensure_env_loaded()
+def _resolve_database_url(db_path: Optional[Union[str, Path]] = None) -> Optional[str]:
+    """Dynamically resolve the PostgreSQL / Supabase connection URL.
+
+    Checks:
+    1. Direct `db_path` parameter:
+       - if postgresql:// or postgres:// -> returns URL string
+       - if non-None local file path -> returns None (explicit SQLite requested)
+    2. `os.environ` (DATABASE_URL, SUPABASE_DB_URL, POSTGRES_URL)
+    3. `st.secrets` (DATABASE_URL, SUPABASE_DB_URL, POSTGRES_URL)
+    """
     if db_path is not None:
         s = str(db_path).strip()
         if s.startswith(("postgresql://", "postgres://")):
-            return "postgresql"
-        return "sqlite"
-    url = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL") or os.getenv("POSTGRES_URL")
-    if url and url.strip().startswith(("postgresql://", "postgres://")):
-        return "postgresql"
-    return "sqlite"
+            return s
+        return None
+
+    _ensure_env_loaded()
+
+    # 1. Environment variables
+    for k in ("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL"):
+        val = os.getenv(k)
+        if val and val.strip().startswith(("postgresql://", "postgres://")):
+            return val.strip()
+
+    # 2. Streamlit Cloud Secrets (st.secrets) - always evaluated dynamically
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            for k in ("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL"):
+                if k in st.secrets:
+                    raw_val = st.secrets[k]
+                    if raw_val:
+                        val = str(raw_val).strip()
+                        if val.startswith(("postgresql://", "postgres://")):
+                            os.environ[k] = val
+                            return val
+    except Exception:
+        pass
+
+    return None
+
+
+def get_database_backend(db_path: Optional[Union[str, Path]] = None) -> str:
+    """Return 'postgresql' or 'sqlite' based on parameters and environment variables."""
+    url = _resolve_database_url(db_path)
+    return "postgresql" if url else "sqlite"
 
 
 def _mask_db_url(url: str) -> str:
@@ -482,14 +516,8 @@ def _mask_db_url(url: str) -> str:
 
 def get_db_target_info(db_path: Optional[Union[str, Path]] = None) -> dict[str, Any]:
     """Return metadata about active database engine for UI and logging."""
-    backend = get_database_backend(db_path)
-    if backend == "postgresql":
-        _ensure_env_loaded()
-        url = (
-            str(db_path).strip()
-            if db_path and str(db_path).strip().startswith(("postgresql://", "postgres://"))
-            else (os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL") or os.getenv("POSTGRES_URL") or "").strip()
-        )
+    url = _resolve_database_url(db_path)
+    if url:
         is_supabase = "supabase" in url.lower()
         provider = "Supabase (PostgreSQL)" if is_supabase else "PostgreSQL"
         masked = _mask_db_url(url)
@@ -523,14 +551,9 @@ def resolve_db_path(db_path: Optional[Union[str, Path]] = None) -> Path:
 def _get_pool(
     db_path: Optional[Union[str, Path]] = None,
 ) -> Union[SQLiteConnectionPool, PostgresConnectionPool]:
-    backend = get_database_backend(db_path)
+    url = _resolve_database_url(db_path)
     with _REGISTRY_LOCK:
-        if backend == "postgresql":
-            url = (
-                str(db_path).strip()
-                if db_path and str(db_path).strip().startswith(("postgresql://", "postgres://"))
-                else (os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL") or os.getenv("POSTGRES_URL") or "").strip()
-            )
+        if url:
             pool = _POSTGRES_POOL_REGISTRY.get(url)
             if pool is None or pool._closed:
                 pool = PostgresConnectionPool(url)
