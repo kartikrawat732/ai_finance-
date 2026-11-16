@@ -216,6 +216,13 @@ _PLACEHOLDER_KEYS: frozenset[str] = frozenset(
 
 def _resolve_api_key(api_key: Optional[str] = None) -> Optional[str]:
     candidate = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not candidate:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                candidate = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+        except Exception:
+            pass
     if candidate:
         cleaned = candidate.strip()
         if cleaned and cleaned.lower() not in _PLACEHOLDER_KEYS:

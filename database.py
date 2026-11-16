@@ -41,6 +41,14 @@ def _ensure_env_loaded() -> None:
         for path in (base_dir / ".env", base_dir.parent / ".env"):
             if path.is_file():
                 load_dotenv(path, override=False)
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                for k, v in st.secrets.items():
+                    if isinstance(v, str) and k not in os.environ:
+                        os.environ[k] = v
+        except Exception:
+            pass
         _ENV_LOADED = True
 
 
