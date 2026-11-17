@@ -776,7 +776,12 @@ def main() -> None:
     st.write("")
 
     # Row 2: On-Demand AI Financial Insights Expander
-    with st.expander("AI Financial Insights & Anomaly Detection", expanded=False):
+    fingerprint = _dataframe_fingerprint(filtered_df)
+    cached_fp = st.session_state.get("ai_insights_fingerprint")
+    cached_md = st.session_state.get("ai_insights_markdown")
+    has_insights = bool(cached_md and cached_fp == fingerprint)
+
+    with st.expander("AI Financial Insights & Anomaly Detection", expanded=has_insights):
         ins_col1, ins_col2 = st.columns([1, 3], vertical_alignment="center")
         with ins_col1:
             analyze_clicked = st.button(
@@ -789,10 +794,6 @@ def main() -> None:
             st.caption(
                 "Sends strictly aggregated, PII-free cash flow & allocation statistics to Gemini to flag spending spikes and recommend optimizations."
             )
-
-        fingerprint = _dataframe_fingerprint(filtered_df)
-        cached_fp = st.session_state.get("ai_insights_fingerprint")
-        cached_md = st.session_state.get("ai_insights_markdown")
 
         if analyze_clicked:
             with st.spinner("Generating structured financial insights..."):
@@ -833,7 +834,7 @@ def main() -> None:
             width="stretch",
         )
 
-    # Tabs: 5 Interactive Analytical Views
+    # Tabs: 5 Interactive Analytical Views (persists selected tab on submit/rerun)
     tab_cash_flow, tab_spending, tab_portfolio, tab_ledger, tab_copilot = st.tabs(
         [
             "Cash Flow & Trend Analysis",
@@ -841,7 +842,9 @@ def main() -> None:
             "Portfolio & Asset Allocation",
             "Transaction Ledger",
             "💬 AI Financial Copilot",
-        ]
+        ],
+        key="dashboard_active_tab",
+        on_change="rerun",
     )
 
     with tab_cash_flow:

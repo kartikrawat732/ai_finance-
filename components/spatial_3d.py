@@ -647,6 +647,31 @@ _SPATIAL_HTML_TEMPLATE = """
                         gsap.to(lightViolet, { intensity: 3.0, duration: 0.6 });
                     }
                 });
+
+                // Smart Form Enter key navigation:
+                // Prevents premature form submission when pressing Enter in an intermediate field.
+                // Advances focus to the next input field. On the final field, Enter naturally triggers submit.
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        const form = input.closest('form');
+                        if (form) {
+                            const formInputs = Array.from(
+                                form.querySelectorAll('input:not([type="hidden"]):not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')
+                            );
+                            const idx = formInputs.indexOf(input);
+                            if (idx > -1 && idx < formInputs.length - 1) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const nextInput = formInputs[idx + 1];
+                                nextInput.focus();
+                                if (typeof nextInput.select === 'function') {
+                                    nextInput.select();
+                                }
+                                return false;
+                            }
+                        }
+                    }
+                });
             });
         }
         attachInputListeners();

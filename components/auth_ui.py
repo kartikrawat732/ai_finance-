@@ -73,7 +73,11 @@ def render_auth_portal() -> Optional[dict[str, Any]]:
     _, center_col, _ = st.columns([1, 1.45, 1])
     with center_col:
         with st.container(border=True):
-            tab_signin, tab_signup = st.tabs(["Sign In", "Create Account"])
+            tab_signin, tab_signup = st.tabs(
+                ["Sign In", "Create Account"],
+                key="auth_active_tab",
+                on_change="rerun",
+            )
 
             with tab_signin:
                 login_mode = st.radio(

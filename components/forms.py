@@ -497,7 +497,8 @@ def render_receipt_scanner(
     currency_symbol: str = "₹",
 ) -> None:
     """Render the multimodal Gemini Vision receipt and invoice scanner."""
-    with st.expander("📷 Scan Receipt / Invoice (Gemini Vision)", expanded=False):
+    is_receipt_active = bool(st.session_state.get("receipt_image_uploader"))
+    with st.expander("📷 Scan Receipt / Invoice (Gemini Vision)", expanded=is_receipt_active):
         st.caption("Upload a receipt photo or invoice image to extract transaction details automatically via Gemini Vision.")
         uploaded_image = st.file_uploader(
             "Upload Receipt Image",
