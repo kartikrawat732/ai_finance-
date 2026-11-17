@@ -256,6 +256,19 @@ def get_spatial_css(*, authenticated: bool = True) -> str:
             transform: translateY(-1px);
         }}
 
+        /* Completely hide noisy overlapping Streamlit input instructions ('Press Enter to submit form') */
+        [data-testid="InputInstructions"],
+        div[data-baseweb="input"] [data-testid="InputInstructions"],
+        div[class*="InputInstructions"],
+        .stInputInstructions {{
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            height: 0 !important;
+            width: 0 !important;
+            pointer-events: none !important;
+        }}
+
         /* Primary CTA Buttons with Magnetic Spring Depth */
         .stButton > button, .stDownloadButton > button {{
             border-radius: 12px !important;
@@ -454,6 +467,24 @@ _SPATIAL_HTML_TEMPLATE = """
                 canvas.id = 'spatial-3d-canvas-root';
                 canvas.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; opacity: 0; transition: opacity 0.8s ease;';
                 targetDoc.body.insertBefore(canvas, targetDoc.body.firstChild);
+            }
+            if (!targetDoc.getElementById('spatial-hide-instructions')) {
+                const hideStyle = targetDoc.createElement('style');
+                hideStyle.id = 'spatial-hide-instructions';
+                hideStyle.textContent = `
+                    [data-testid="InputInstructions"],
+                    div[data-baseweb="input"] [data-testid="InputInstructions"],
+                    div[class*="InputInstructions"],
+                    .stInputInstructions {
+                        display: none !important;
+                        visibility: hidden !important;
+                        opacity: 0 !important;
+                        height: 0 !important;
+                        width: 0 !important;
+                        pointer-events: none !important;
+                    }
+                `;
+                targetDoc.head.appendChild(hideStyle);
             }
         } else {
             canvas = document.getElementById('spatial-local-canvas');

@@ -324,11 +324,11 @@ def render_manual_transaction_form(
         selected_cat = st.selectbox("Category", options=category_options, index=0)
         custom_cat = st.text_input(
             "Custom Category (optional)",
-            placeholder="Overrides dropdown if filled",
+            placeholder="Custom name (optional)",
         )
         description = st.text_input(
             "Description / Merchant",
-            placeholder="e.g., Swiggy Bangalore, Zerodha SIP, Payroll",
+            placeholder="e.g., Swiggy, Zerodha SIP, Salary",
         )
 
         asset_ticker: Optional[str] = None
